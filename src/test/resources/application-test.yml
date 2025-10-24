@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: client
+stream-client:
+  orphan-timeout-ms: 500          # 0.5s for fast orphan detection in tests
+  orphan-flusher-interval-seconds: 1
+  sink-retry-max-attempts: 1
+  sink-retry-backoff-ms: 100

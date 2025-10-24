@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 
 @Slf4j
 @Service
@@ -24,6 +25,18 @@ public class StreamClientService {
     private final SourcePort sourceB;
     private final SinkPort sink;
 
+    @Value("${stream-client.orphan-timeout-ms}")
+    protected long ORPHAN_TIMEOUT_MS;
+
+    @Value("${stream-client.orphan-flusher-interval-seconds}")
+    protected long ORPHAN_FLUSH_INTERVAL_SECONDS;
+
+    @Value("${stream-client.sink-retry-max-attempts}")
+    protected int SINK_RETRY_MAX_ATTEMPTS;
+
+    @Value("${stream-client.sink-retry-backoff-ms}")
+    protected long SINK_RETRY_BACKOFF_MS;
+
     public StreamClientService(@Qualifier("sourceAAdapter") SourcePort sourceA,
                                @Qualifier("sourceBAdapter") SourcePort sourceB,
                                SinkPort sink) {
@@ -31,8 +44,6 @@ public class StreamClientService {
         this.sourceB = sourceB;
         this.sink = sink;
     }
-
-    private static final long ORPHAN_TIMEOUT_MS = 60000; // 15 seconds
 
     // Unified pending map: ID → (source, timestamp)
     private final Map<String, PendingEntry> pendingMap = new ConcurrentHashMap<>();
@@ -55,7 +66,7 @@ public class StreamClientService {
                 );
     }
 
-    private Flux<Void> streamA() {
+    protected Flux<Void> streamA() {
         return sourceA.streamRecords()
                 .flatMap(line -> {
                     try {
@@ -70,7 +81,7 @@ public class StreamClientService {
                 });
     }
 
-    private Flux<Void> streamB() {
+    protected Flux<Void> streamB() {
         return sourceB.streamRecords()
                 .flatMap(line -> {
                     try {
@@ -109,7 +120,7 @@ public class StreamClientService {
 
     private Flux<Void> sendJoinedFlux(String id) {
         return sink.sendRecord(new Record("joined", id))
-                .retryWhen(Retry.backoff(3, Duration.ofMillis(200)))
+                .retryWhen(Retry.backoff(SINK_RETRY_MAX_ATTEMPTS, Duration.ofMillis(SINK_RETRY_BACKOFF_MS)))
                 .onErrorResume(e -> {
                     log.warn("Failed to send joined {}: {}", id, e.getMessage());
                     return Mono.empty();
@@ -119,7 +130,7 @@ public class StreamClientService {
 
     private Flux<Void> sendOrphanFlux(String id) {
         return sink.sendRecord(new Record("orphaned", id))
-                .retryWhen(Retry.backoff(3, Duration.ofMillis(200)))
+                .retryWhen(Retry.backoff(SINK_RETRY_MAX_ATTEMPTS, Duration.ofMillis(SINK_RETRY_BACKOFF_MS)))
                 .onErrorResume(e -> {
                     log.warn("Failed to send orphan {}: {}", id, e.getMessage());
                     return Mono.empty();
@@ -130,8 +141,8 @@ public class StreamClientService {
     /**
      * Periodically flush old pending items as orphans.
      */
-    private Flux<Void> orphanFlusher() {
-        return Flux.interval(Duration.ofSeconds(2))
+    protected Flux<Void> orphanFlusher() {
+        return Flux.interval(Duration.ofSeconds(ORPHAN_FLUSH_INTERVAL_SECONDS))
                 .flatMap(tick -> flushExpired());
     }
 
