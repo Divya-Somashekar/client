@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: client
+stream-client:
+  orphan-timeout-ms: 60000
+  orphan-flusher-interval-seconds: 2
+  sink-retry-backoff-ms: 200
+  sink-retry-max-attempts: 3
